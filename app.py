@@ -1,10 +1,11 @@
-# app.py - COMPLETE FIXED Lab Inventory Management System
+# app.py - BULLETPROOF Lab Inventory Management System
 import streamlit as st
 import qrcode
 import io
 import json
 from datetime import datetime
 import pandas as pd
+import base64
 
 # Initialize session state for inventory data
 if 'inventory' not in st.session_state:
@@ -20,10 +21,17 @@ if 'form_submitted' not in st.session_state:
     st.session_state.form_submitted = False
 if 'current_form_id' not in st.session_state:
     st.session_state.current_form_id = None
+if 'qr_cache' not in st.session_state:
+    st.session_state.qr_cache = {}
 
-def generate_qr_code(url):
-    """Generate QR code and return bytes"""
+def generate_qr_code_safe(url):
+    """Generate QR code safely with caching"""
     try:
+        # Check cache first
+        if url in st.session_state.qr_cache:
+            return st.session_state.qr_cache[url]
+        
+        # Generate new QR code
         qr = qrcode.QRCode(
             version=8,
             error_correction=qrcode.constants.ERROR_CORRECT_H,
@@ -34,21 +42,54 @@ def generate_qr_code(url):
         qr.make(fit=True)
         qr_img = qr.make_image(fill_color="black", back_color="white")
         
+        # Convert to bytes
         buf = io.BytesIO()
         qr_img.save(buf, format="PNG")
-        return buf.getvalue()
+        buf.seek(0)
+        qr_bytes = buf.getvalue()
+        
+        # Cache the result
+        st.session_state.qr_cache[url] = qr_bytes
+        return qr_bytes
+        
     except Exception as e:
-        st.error(f"QR generation error: {e}")
+        st.error(f"QR generation failed: {str(e)}")
+        return None
+
+def get_base64_encoded_image(qr_bytes):
+    """Convert QR bytes to base64 for display"""
+    try:
+        if qr_bytes:
+            return base64.b64encode(qr_bytes).decode()
+        return None
+    except:
         return None
 
 def get_app_url():
-    """Get the current app URL - UPDATE THIS WITH YOUR ACTUAL URL"""
+    """Get the current app URL - CRITICAL: UPDATE THIS WITH YOUR ACTUAL URL"""
+    # ⚠️ ⚠️ ⚠️ REPLACE THIS WITH YOUR ACTUAL STREAMLIT APP URL ⚠️ ⚠️ ⚠️
     return "https://lab-inventory-system-wgghkexsaoemscwwqxxfrj.streamlit.app/"
 
 def reset_form_state():
     """Reset form submission state"""
     st.session_state.form_submitted = False
     st.session_state.current_form_id = None
+
+def display_qr_code(qr_bytes, caption="QR Code", width=150):
+    """Safely display QR code"""
+    try:
+        if qr_bytes:
+            # Convert to base64 for reliable display
+            img_str = get_base64_encoded_image(qr_bytes)
+            if img_str:
+                st.markdown(f'<img src="data:image/png;base64,{img_str}" width="{width}" alt="{caption}">', 
+                           unsafe_allow_html=True)
+                st.caption(caption)
+                return True
+        return False
+    except Exception as e:
+        st.error(f"QR display error: {str(e)}")
+        return False
 
 def main_dashboard():
     """Central dashboard - shows all storages"""
@@ -82,10 +123,8 @@ def main_dashboard():
         st.metric("🔴 Occupied Items", occupied_count)
     with col4:
         # Generate and display central QR code
-        central_qr_data = generate_qr_code(app_url)
-        if central_qr_data:
-            st.image(central_qr_data, width=100)
-            st.caption("Central QR")
+        central_qr_data = generate_qr_code_safe(app_url)
+        display_qr_code(central_qr_data, "Central QR", 100)
     
     st.markdown("---")
     
@@ -121,10 +160,18 @@ def main_dashboard():
                     with col_b:
                         # Storage QR code
                         storage_url = f"{app_url}?storage={storage_id}"
-                        qr_data = generate_qr_code(storage_url)
-                        if qr_data:
-                            st.image(qr_data, width=120)
-                            st.caption(f"QR for {storage['name']}")
+                        qr_data = generate_qr_code_safe(storage_url)
+                        if display_qr_code(qr_data, f"QR for {storage['name']}", 120):
+                            # Download button
+                            if qr_data:
+                                st.download_button(
+                                    f"📥 Download QR",
+                                    qr_data,
+                                    f"qr_{storage_id}.png",
+                                    "image/png",
+                                    key=f"dl_{storage_id}",
+                                    use_container_width=True
+                                )
                     
                     with col_c:
                         # Actions
@@ -153,6 +200,7 @@ def main_dashboard():
             st.subheader("🎯 Quick Actions")
             
             # Central QR download
+            central_qr_data = generate_qr_code_safe(app_url)
             if central_qr_data:
                 st.download_button(
                     "📥 Download Central QR",
@@ -247,19 +295,17 @@ def storage_view(storage_id):
         
         # Current storage QR
         current_url = f"{app_url}?storage={storage_id}"
-        current_qr = generate_qr_code(current_url)
+        current_qr = generate_qr_code_safe(current_url)
         
-        if current_qr:
-            st.image(current_qr, width=150)
-            st.caption(f"QR for this storage")
-            
-            st.download_button(
-                "📥 Download This QR",
-                current_qr,
-                f"qr_{storage_id}.png",
-                "image/png",
-                use_container_width=True
-            )
+        if display_qr_code(current_qr, f"QR for {storage['name']}", 150):
+            if current_qr:
+                st.download_button(
+                    "📥 Download This QR",
+                    current_qr,
+                    f"qr_{storage_id}.png",
+                    "image/png",
+                    use_container_width=True
+                )
         
         # Navigation and actions
         st.markdown("---")
