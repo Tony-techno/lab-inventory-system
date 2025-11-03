@@ -1,4 +1,4 @@
-# app.py - COMPLETE Lab Inventory Management System
+# app.py - COMPLETE FIXED Lab Inventory Management System
 import streamlit as st
 import qrcode
 import io
@@ -14,6 +14,12 @@ if 'inventory' not in st.session_state:
         'status_options': ['Free', 'Occupied', 'Ordered', 'Maintenance', 'Broken'],
         'storage_types': ['drawer', 'cupboard', 'almirah', 'shelf', 'cabinet', 'rack', 'fridge', 'freezer']
     }
+
+# Initialize form states
+if 'form_submitted' not in st.session_state:
+    st.session_state.form_submitted = False
+if 'current_form_id' not in st.session_state:
+    st.session_state.current_form_id = None
 
 def generate_qr_code(url):
     """Generate QR code and return bytes"""
@@ -39,6 +45,11 @@ def get_app_url():
     """Get the current app URL - UPDATE THIS WITH YOUR ACTUAL URL"""
     return "https://lab-inventory-system-wgghkexsaoemscwwqxxfrj.streamlit.app/"
 
+def reset_form_state():
+    """Reset form submission state"""
+    st.session_state.form_submitted = False
+    st.session_state.current_form_id = None
+
 def main_dashboard():
     """Central dashboard - shows all storages"""
     st.set_page_config(
@@ -46,6 +57,9 @@ def main_dashboard():
         page_icon="🔬",
         layout="wide"
     )
+    
+    # Reset form state when coming to main dashboard
+    reset_form_state()
     
     st.title("🔬 Lab Inventory Management System")
     st.markdown("---")
@@ -116,10 +130,12 @@ def main_dashboard():
                         # Actions
                         if st.button(f"📋 View", key=f"view_{storage_id}", use_container_width=True):
                             st.session_state.current_storage = storage_id
+                            reset_form_state()
                             st.rerun()
                         
                         if st.button(f"🗑️ Delete", key=f"delete_storage_{storage_id}", use_container_width=True):
                             st.session_state.storage_to_delete = storage_id
+                            reset_form_state()
                             st.rerun()
                     
                     # Quick items preview
@@ -149,6 +165,7 @@ def main_dashboard():
             # Add new storage
             if st.button("➕ Add New Storage", use_container_width=True, type="primary"):
                 st.session_state.show_add_storage = True
+                reset_form_state()
                 st.rerun()
             
             # Export data
@@ -192,6 +209,7 @@ def storage_view(storage_id):
     if storage_id not in st.session_state.inventory['storages']:
         st.error("Storage not found!")
         st.session_state.current_storage = None
+        reset_form_state()
         st.rerun()
         return
     
@@ -247,14 +265,17 @@ def storage_view(storage_id):
         st.markdown("---")
         if st.button("🏠 Back to Central", use_container_width=True):
             st.session_state.current_storage = None
+            reset_form_state()
             st.rerun()
         
         if st.button("✏️ Edit Storage", use_container_width=True):
             st.session_state.editing_storage = storage_id
+            reset_form_state()
             st.rerun()
         
         if st.button("🗑️ Delete Storage", use_container_width=True):
             st.session_state.storage_to_delete = storage_id
+            reset_form_state()
             st.rerun()
     
     st.markdown("---")
@@ -277,15 +298,19 @@ def storage_view(storage_id):
                         if item.get('expiry'):
                             st.write(f"**Expiry:** {item['expiry']}")
                         st.write(f"**Status:** {item['status']}")
+                        if item.get('notes'):
+                            st.write(f"**Notes:** {item['notes']}")
                     
                     with col_b:
-                        if st.button(f"✏️ Edit", key=f"edit_{i}", use_container_width=True):
+                        if st.button(f"✏️ Edit", key=f"edit_{storage_id}_{i}", use_container_width=True):
                             st.session_state.editing_item = (storage_id, i)
+                            reset_form_state()
                             st.rerun()
                     
                     with col_c:
-                        if st.button(f"🗑️ Delete", key=f"delete_{i}", use_container_width=True):
+                        if st.button(f"🗑️ Delete", key=f"delete_{storage_id}_{i}", use_container_width=True):
                             delete_item(storage_id, i)
+                            reset_form_state()
                             st.rerun()
         else:
             st.info("📭 No items in this storage yet. Add some items using the form on the right.")
@@ -293,18 +318,33 @@ def storage_view(storage_id):
     with col_right:
         st.subheader("➕ Add New Item")
         
-        with st.form(f"add_item_{storage_id}", clear_on_submit=True):
-            new_name = st.text_input("Item Name*", placeholder="Enter item name")
-            new_quantity = st.text_input("Quantity*", placeholder="e.g., 500g, 10 pieces")
+        # Use a unique form key to prevent continuous adding
+        form_key = f"add_item_{storage_id}"
+        
+        # Check if this form was just submitted
+        form_just_submitted = (st.session_state.form_submitted and 
+                             st.session_state.current_form_id == form_key)
+        
+        with st.form(form_key, clear_on_submit=True):
+            new_name = st.text_input("Item Name*", placeholder="Enter item name", 
+                                   value="" if not form_just_submitted else "")
+            new_quantity = st.text_input("Quantity*", placeholder="e.g., 500g, 10 pieces", 
+                                       value="" if not form_just_submitted else "")
             new_category = st.selectbox("Category", st.session_state.inventory['categories'])
             new_status = st.selectbox("Status*", st.session_state.inventory['status_options'])
-            new_expiry = st.text_input("Expiry Date (optional)", placeholder="YYYY-MM-DD")
-            new_notes = st.text_area("Notes (optional)", placeholder="Additional notes")
+            new_expiry = st.text_input("Expiry Date (optional)", placeholder="YYYY-MM-DD",
+                                     value="" if not form_just_submitted else "")
+            new_notes = st.text_area("Notes (optional)", placeholder="Additional notes",
+                                   value="" if not form_just_submitted else "")
             
             submitted = st.form_submit_button("➕ Add Item to Storage", type="primary", use_container_width=True)
             
             if submitted:
                 if new_name and new_quantity and new_status:
+                    # Set form state to prevent continuous adding
+                    st.session_state.form_submitted = True
+                    st.session_state.current_form_id = form_key
+                    
                     add_item_to_storage(storage_id, new_name, new_quantity, new_category, new_status, new_expiry, new_notes)
                     st.rerun()
                 else:
@@ -329,11 +369,18 @@ def add_storage_view():
     
     st.title("➕ Add New Storage")
     
-    with st.form("add_storage_form"):
-        name = st.text_input("Storage Name*", placeholder="e.g., Drawer A1 - Chemicals")
+    form_key = "add_storage_form"
+    form_just_submitted = (st.session_state.form_submitted and 
+                         st.session_state.current_form_id == form_key)
+    
+    with st.form(form_key, clear_on_submit=True):
+        name = st.text_input("Storage Name*", placeholder="e.g., Drawer A1 - Chemicals",
+                           value="" if not form_just_submitted else "")
         storage_type = st.selectbox("Storage Type*", st.session_state.inventory['storage_types'])
-        location = st.text_input("Location*", placeholder="e.g., Lab Room 101")
-        description = st.text_area("Description (optional)", placeholder="Additional details about this storage")
+        location = st.text_input("Location*", placeholder="e.g., Lab Room 101",
+                               value="" if not form_just_submitted else "")
+        description = st.text_area("Description (optional)", placeholder="Additional details about this storage",
+                                 value="" if not form_just_submitted else "")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -343,12 +390,21 @@ def add_storage_view():
         
         if cancel:
             st.session_state.show_add_storage = False
+            reset_form_state()
             st.rerun()
             
-        if submit and name and location and storage_type:
-            add_new_storage(name, storage_type, location, description)
-            st.session_state.show_add_storage = False
-            st.rerun()
+        if submit:
+            if name and location and storage_type:
+                # Set form state
+                st.session_state.form_submitted = True
+                st.session_state.current_form_id = form_key
+                
+                add_new_storage(name, storage_type, location, description)
+                st.session_state.show_add_storage = False
+                reset_form_state()
+                st.rerun()
+            else:
+                st.error("Please fill in all required fields (Name, Type, Location)")
 
 def edit_storage_view(storage_id):
     """View for editing a storage"""
@@ -372,12 +428,17 @@ def edit_storage_view(storage_id):
         
         if cancel:
             st.session_state.editing_storage = None
+            reset_form_state()
             st.rerun()
             
-        if submit and name and location and storage_type:
-            update_storage(storage_id, name, storage_type, location, description)
-            st.session_state.editing_storage = None
-            st.rerun()
+        if submit:
+            if name and location and storage_type:
+                update_storage(storage_id, name, storage_type, location, description)
+                st.session_state.editing_storage = None
+                reset_form_state()
+                st.rerun()
+            else:
+                st.error("Please fill in all required fields")
 
 def edit_item_view(storage_id, item_index):
     """View for editing an item"""
@@ -406,12 +467,17 @@ def edit_item_view(storage_id, item_index):
         
         if cancel:
             st.session_state.editing_item = None
+            reset_form_state()
             st.rerun()
             
-        if submit and name and quantity and status:
-            update_item(storage_id, item_index, name, quantity, category, status, expiry, notes)
-            st.session_state.editing_item = None
-            st.rerun()
+        if submit:
+            if name and quantity and status:
+                update_item(storage_id, item_index, name, quantity, category, status, expiry, notes)
+                st.session_state.editing_item = None
+                reset_form_state()
+                st.rerun()
+            else:
+                st.error("Please fill in all required fields")
 
 def delete_confirmation_view():
     """View for confirming storage deletion"""
@@ -430,12 +496,14 @@ def delete_confirmation_view():
         if st.button("✅ Confirm Delete", type="primary", use_container_width=True):
             delete_storage(storage_id)
             st.session_state.storage_to_delete = None
+            reset_form_state()
             st.success("Storage deleted successfully!")
             st.rerun()
     
     with col3:
         if st.button("❌ Cancel", use_container_width=True):
             st.session_state.storage_to_delete = None
+            reset_form_state()
             st.rerun()
 
 # Core CRUD Operations
@@ -601,6 +669,7 @@ def main():
     except Exception as e:
         st.error(f"An error occurred: {str(e)}")
         # Fallback to main dashboard
+        reset_form_state()
         main_dashboard()
 
 if __name__ == "__main__":
